@@ -4,25 +4,27 @@ import axios from 'axios';
 const StockForm = () => {
     const [symbol, setSymbol] = useState('');
     const [days, setDays] = useState('');
-    const [prediction, setPrediction] = useState(null);
+    const [predictions, setPredictions] = useState(null);
     const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
+        setLoading(true);
 
         try {
-            const response = await 
-axios.post('http://127.0.0.1:8000/predict', {
+            const response = await axios.post('http://127.0.0.1:8000/predict', {
                 stock_symbol: symbol,
                 days: parseInt(days),
             });
 
-            setPrediction(response.data.predicted_price);
+            setPredictions(response.data);
         } catch (err) {
             console.error('Error fetching prediction:', err);
             setError('Failed to fetch prediction. Please check your inputs or try again later.');
         }
+        setLoading(false);
     };
 
     return (
@@ -43,13 +45,30 @@ axios.post('http://127.0.0.1:8000/predict', {
                     onChange={(e) => setDays(e.target.value)}
                     required
                 />
-                <button type="submit">Get Prediction</button>
+                <button type="submit" disabled={loading}>
+                    {loading ? "Fetching..." : "Get Prediction"}
+                </button>
             </form>
 
-            {prediction && (
+            {predictions && predictions.predicted_price && (
                 <div>
-                    <h3>Prediction:</h3>
-                    <p>The predicted price is ${prediction.toFixed(2)}</p>
+                    <h3>Predictions:</h3>
+                    <ul>
+                        {Object.entries(predictions.predicted_price).map(([model, price]) => (
+                            <li key={model}>
+                                {model}: <strong>${price.toFixed(2)}</strong>
+                            </li>
+                        ))}
+                    </ul>
+
+                    <h3>Model Errors (Lower is Better):</h3>
+                    <ul>
+                        {Object.entries(predictions.model_errors).map(([model, error]) => (
+                            <li key={model}>
+                                {model}: {error.toFixed(2)}
+                            </li>
+                        ))}
+                    </ul>
                 </div>
             )}
 
