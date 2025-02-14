@@ -30,7 +30,8 @@ MODEL_PATHS = {
     "Random_Forest": "models/Random_Forest.pkl",
     "Gradient_Boosting": "models/Gradient_Boosting.pkl",
     "XGBoost": "models/XGBoost.pkl",
-    "LSTM": "models/lstm_model.pth"
+    "LSTM": "models/lstm_model.pth",
+    "ONNX_LSTM": "models/lstm_model.onnx"
 }
 SCALER_PATH = "models/scaler_lstm.pkl"
 METRICS_FILE = "models/model_metrics.pkl"
@@ -109,15 +110,6 @@ def fetch_stock_data(stock_symbol):
     close_prices = stock_data["Close"].values.astype(np.float64).flatten()
     stock_data["RSI"] = talib.RSI(close_prices, timeperiod=14)
 
-    # ✅ Fetch News Sentiment
-    stock_data["Sentiment"] = np.random.uniform(-1, 1)
-
-    # ✅ Fetch Earnings Report Data
-    stock_data["Earnings_Surprise"] = np.random.uniform(-5, 5)
-
-    # ✅ Fetch Options Market Data
-    stock_data["Implied_Volatility"], stock_data["Open_Interest"] = np.random.uniform(0.1, 1), np.random.randint(1000, 10000)
-
     stock_data.fillna(0, inplace=True)
 
     return stock_data
@@ -126,22 +118,16 @@ def fetch_stock_data(stock_symbol):
 async def predict(request: PredictionRequest):
     """Predict stock price based on the requested model."""
     stock_data = fetch_stock_data(request.stock_symbol)
-    features = stock_data[['Open', 'High', 'Low', 'Close', 'Volume', 'RSI', 'Sentiment', 'Earnings_Surprise', 'Implied_Volatility', 'Open_Interest']].values[-request.days:]
+    features = stock_data[['Open', 'High', 'Low', 'Close', 'Volume', 'RSI']].values[-request.days:]
 
     if request.model == "LSTM":
-        if lstm_model is None:
-            return {"error": "LSTM Model not loaded!"}
-
         features_scaled = scaler.transform(features)
         features_scaled = torch.tensor(features_scaled, dtype=torch.float32).unsqueeze(0).to(device)
 
         with torch.no_grad():
             prediction = lstm_model(features_scaled).cpu().numpy().flatten()
 
-        prediction = scaler.inverse_transform(np.tile(prediction.reshape(-1, 1), (1, 10)))[:, 3]
-        close_price_last = stock_data["Close"].iloc[-1]
-        prediction = np.clip(prediction, close_price_last * 0.95, close_price_last * 1.05)
-
+        prediction = scaler.inverse_transform(np.tile(prediction.reshape(-1, 1), (1, 6)))[:, 3]
     else:
         model = onnx_models.get(request.model)
         if model is None:
@@ -149,7 +135,6 @@ async def predict(request: PredictionRequest):
 
         prediction = model.predict(features)
 
-    # ✅ Fetch Model Metrics
     metrics = model_metrics.get(request.model, {
         "MSE": "No Metrics Found",
         "RMSE": "No Metrics Found",
@@ -166,7 +151,6 @@ async def predict(request: PredictionRequest):
         "R2": metrics.get("R2", "No Metrics Found")
     }
 
-    print(f"✅ API Response Sent: {response}")  # Debugging log
     return response
 
 @app.get("/")
