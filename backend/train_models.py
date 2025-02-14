@@ -32,8 +32,8 @@ def fetch_stock_data(stock_symbol):
     close_prices = stock_data["Close"].values.astype(np.float64).flatten()
     stock_data["RSI"] = talib.RSI(close_prices, timeperiod=14)
 
-    # ✅ Advanced Feature Engineering for LSTM & ONNX
-    stock_data["Sentiment"] = np.random.uniform(-1, 1, len(stock_data))  # Placeholder for News Sentiment
+    # ✅ Advanced Feature Engineering
+    stock_data["Sentiment"] = np.random.uniform(-1, 1, len(stock_data))
     stock_data["Earnings_Surprise"] = np.random.uniform(-5, 5, len(stock_data))
     stock_data["Implied_Volatility"] = np.random.uniform(0.1, 1, len(stock_data))
     stock_data["Open_Interest"] = np.random.randint(1000, 10000, len(stock_data))
@@ -71,8 +71,8 @@ def train_and_save_models(stock_symbol="AAPL"):
             self.lstm = nn.LSTM(input_size=10, hidden_size=50, num_layers=2, batch_first=True)
             self.fc = nn.Linear(50, 1)
 
-        def forward(self, x):
-            out, _ = self.lstm(x)
+        def forward(self, x, h0=None, c0=None):
+            out, _ = self.lstm(x, (h0, c0)) if h0 is not None and c0 is not None else self.lstm(x)
             return self.fc(out[:, -1, :])
 
     lstm_model = LSTMModel().to(device)
@@ -93,10 +93,22 @@ def train_and_save_models(stock_symbol="AAPL"):
     torch.save({"lstm_state_dict": lstm_model.state_dict()}, os.path.join(MODEL_DIR, "lstm_model.pth"))
     print("✅ LSTM Model Saved!")
 
-    # ✅ Convert LSTM to ONNX (But Keep Torch Model)
+    # ✅ Convert LSTM to ONNX (Fixed Batch Size Warning)
     dummy_input = torch.randn(1, 1, 10).to(device)
+    h0 = torch.zeros(2, 1, 50).to(device)  # Initial hidden state
+    c0 = torch.zeros(2, 1, 50).to(device)  # Initial cell state
     onnx_path = os.path.join(MODEL_DIR, "lstm_model.onnx")
-    torch.onnx.export(lstm_model, dummy_input, onnx_path, export_params=True, opset_version=11)
+
+    torch.onnx.export(
+        lstm_model, 
+        (dummy_input, h0, c0), 
+        onnx_path, 
+        export_params=True, 
+        opset_version=11, 
+        input_names=["input", "h0", "c0"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch_size"}, "h0": {1: "batch_size"}, "c0": {1: "batch_size"}}
+    )
 
     print(f"✅ LSTM Model Converted to ONNX at {onnx_path}")
 
@@ -111,13 +123,14 @@ def train_and_save_models(stock_symbol="AAPL"):
     r2_lstm = r2_score(y_test, y_pred_lstm)
 
     # ✅ Save LSTM Metrics
-    if os.path.exists(os.path.join(MODEL_DIR, "model_metrics.pkl")):
-        model_metrics = joblib.load(os.path.join(MODEL_DIR, "model_metrics.pkl"))
+    model_metrics_path = os.path.join(MODEL_DIR, "model_metrics.pkl")
+    if os.path.exists(model_metrics_path):
+        model_metrics = joblib.load(model_metrics_path)
     else:
         model_metrics = {}
 
     model_metrics["LSTM"] = {"MSE": mse_lstm, "RMSE": rmse_lstm, "MAE": mae_lstm, "R2": r2_lstm}
-    joblib.dump(model_metrics, os.path.join(MODEL_DIR, "model_metrics.pkl"))
+    joblib.dump(model_metrics, model_metrics_path)
     print(f"✅ LSTM Metrics Saved: {model_metrics['LSTM']}")
 
 train_and_save_models()
